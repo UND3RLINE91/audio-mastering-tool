@@ -33,7 +33,7 @@ export const WelcomeSection = () => {
             </li>
             <li className="flex items-start hover:text-white transition-colors">
               <span className="font-medium mr-2 text-white">4.</span>
-              <span>Our AI will master your track according to platform standards</span>
+              <span>Our site will master your track according to platform standards</span>
             </li>
           </ol>
         </div>
