@@ -11,7 +11,7 @@ export const WelcomeSection = () => {
         Welcome to AE's Audio Master Tool
       </h1>
       <p className="text-lg text-neutral-400 mb-8">
-        Professional Audio Mastering Made Easy
+        Professional Audio Mastering Made Easy!
       </p>
 
       {!user && (
