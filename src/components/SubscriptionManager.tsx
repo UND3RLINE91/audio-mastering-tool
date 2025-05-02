@@ -89,7 +89,7 @@ export const SubscriptionManager = () => {
         <DialogHeader>
           <DialogTitle className="text-xl">Choose Your Plan</DialogTitle>
           <DialogDescription className="text-neutral-400">
-            Select a plan that best fits your needs. All plans include monthly credits for mastering.
+            Select a plan that best fits your needs. All plans include 2500 monthly credits for mastering.
           </DialogDescription>
         </DialogHeader>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
