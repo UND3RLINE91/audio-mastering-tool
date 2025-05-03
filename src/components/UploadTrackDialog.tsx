@@ -37,6 +37,21 @@ export const UploadTrackDialog = () => {
   // State to control the dialog visibility
   const [isOpen, setIsOpen] = useState(false);
 
+  // IMPORTANT: Get your Supabase Anon Key from environment variables.
+  // Vite exposes environment variables prefixed with VITE_ to the client-side code.
+  // Make sure VITE_SUPABASE_ANON_KEY is set in your .env file (e.g., .env.local) for local development
+  // and in your Vercel project settings for deployment.
+  const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+
+  // Log an error if the key is missing during development/build time.
+  if (!supabaseAnonKey) {
+    console.error(
+        "Supabase Anon Key is missing. Make sure VITE_SUPABASE_ANON_KEY is set in your environment variables (.env.local for dev, Vercel settings for production)."
+    );
+    // You could potentially disable the upload functionality or show a persistent error message
+    // if the key is missing, as function calls will fail without it.
+  }
+
   // Handler for file input changes
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const selectedFile = e.target.files ? e.target.files[0] : null;
@@ -51,15 +66,31 @@ export const UploadTrackDialog = () => {
           title: "Oops! That's not quite right",
           description: "We can only work with WAV, AIFF, or MP3 files. Could you try again with one of these formats? 🎵",
         });
+        setFile(null); // Clear the invalid file selection
+        e.target.value = ''; // Reset the file input visually
         return; // Exit if file type is invalid
       }
       // Set the selected file in state
       setFile(selectedFile);
-    }
+    } else {
+      // Handle case where user cancels file selection
+      setFile(null);
+    }
   };
 
   // Handler for the upload process
   const handleUpload = async () => {
+    // Check if the Supabase key is available before proceeding
+    if (!supabaseAnonKey) {
+       toast({
+         variant: "destructive",
+         title: "Configuration Error",
+         description: "Application is missing configuration. Please contact support.",
+       });
+       console.error("Attempted upload without Supabase Anon Key.");
+       return; // Stop the upload process
+    }
+
     // Check if file and platform are selected
     if (!file || !platform) {
       toast({
@@ -71,28 +102,35 @@ export const UploadTrackDialog = () => {
     }
 
     try {
-      // Set uploading state to true
+      // Set uploading state to true to disable button and show loading text
       setIsUploading(true);
 
-      // 1. Upload file to Supabase storage
-      const user = (await supabase.auth.getUser()).data.user; // Get current user
-      if (!user) throw new Error("User not authenticated"); // Throw error if user is not logged in
+      // --- Step 1: Upload file to Supabase storage ---
+      const user = (await supabase.auth.getUser()).data.user; // Get current authenticated user
+      if (!user) throw new Error("User not authenticated. Please log in again."); // Ensure user is logged in
 
       const userId = user.id; // Get user ID
-      const timestamp = new Date().getTime(); // Get current timestamp
-      const fileExt = file.name.split('.').pop(); // Get file extension
-      // Construct the file path for storage
+      const timestamp = new Date().toISOString(); // Use ISO string for better sorting/uniqueness
+      const fileExt = file.name.split('.').pop()?.toLowerCase() || 'bin'; // Get file extension safely
+      // Construct the file path for storage: userId/timestamp-original.ext
       const filePath = `${userId}/${timestamp}-original.${fileExt}`;
 
+      console.log(`Uploading file to storage at path: ${filePath}`);
       // Upload the file to the 'audio' bucket
       const { error: uploadError } = await supabase.storage
         .from('audio')
         .upload(filePath, file);
 
       // Throw error if upload fails
-      if (uploadError) throw uploadError;
+      if (uploadError) {
+        console.error("Supabase storage upload error:", uploadError);
+        throw new Error(`Failed to upload file: ${uploadError.message}`);
+      }
+      console.log("File uploaded successfully.");
 
-      // 2. Create database record for the uploaded track
+
+      // --- Step 2: Create database record for the uploaded track ---
+     console.log("Creating database record for track...");
       const { error: dbError, data: trackData } = await supabase
         .from('audio_tracks')
         .insert({
@@ -100,55 +138,75 @@ export const UploadTrackDialog = () => {
           original_filename: file.name,
           storage_path_original: filePath,
           selected_platform_preset: platform as PlatformPreset, // Ensure platform type matches enum
+            status: 'uploaded' // Set initial status
         })
         .select() // Select the inserted data
         .single(); // Expect a single row back
 
       // Throw error if database insert fails
-      if (dbError) throw dbError;
+      if (dbError) {
+        console.error("Supabase database insert error:", dbError);
+        // Attempt to clean up the uploaded file if DB insert fails
+        console.log(`Attempting to delete orphaned file: ${filePath}`);
+        await supabase.storage.from('audio').remove([filePath]);
+        throw new Error(`Failed to save track details: ${dbError.message}`);
+      }
+      console.log("Database record created successfully:", trackData);
 
-      // Show success toast for upload
+      // Show success toast for upload completion
       toast({
         title: "Great job! 🎉",
-        description: "Your track is in our expert hands. We'll let you know as soon as it's ready to shine! ✨",
+        description: "Your track is uploaded. Now starting the mastering process... ✨",
       });
 
-      // Close dialog and reset form state
+      // Close dialog and reset form state *before* invoking the function
+      // so the UI updates while processing starts in the background.
       setIsOpen(false);
       setFile(null);
       setPlatform("");
+     // NOTE: We keep isUploading = true until the function invocation attempt finishes
 
-      // 3. Trigger the mastering process function
-      // No need to get session manually, supabase.functions.invoke handles auth automatically
-
+      // --- Step 3: Trigger the mastering process function ---
       console.log(`Calling audio-mastering function for trackId: ${trackData.id}`);
-      // *** CORRECTED FUNCTION INVOCATION ***
-      // Remove manual method and headers. Pass body object directly.
+
+     // Invoke the Supabase Edge Function 'audio-mastering'.
+     // The `supabase-js` client automatically includes the Authorization header.
+     // We manually add the 'apikey' header as it's required by the Supabase gateway for functions.
+     // The 'body' is passed as a plain JavaScript object; the client handles stringification and Content-Type.
       const { error: processingError } = await supabase.functions.invoke('audio-mastering', {
         body: { trackId: trackData.id },
+        headers: {
+          'apikey': supabaseAnonKey // Pass the anon key obtained from environment variables
+        }
       });
       
-      // Check for errors returned *from* the function invocation itself (e.g., function not found, network error, or non-2xx status)
+      // Check for errors returned *from* the function invocation itself
+     // This catches network errors, function not found, or non-2xx status codes (like 4xx, 5xx) returned by the function.
       if (processingError) {
         console.error("Error invoking audio-mastering function:", processingError);
-        // Throw an error to be caught by the outer catch block
+        // Update the track status to 'error' in the database since processing failed to start
+        await supabase
+          .from('audio_tracks')
+          .update({ status: 'error', error_message: `Failed to start processing: ${processingError.message}` })
+          .eq('id', trackData.id);
+        // Throw an error to be caught by the outer catch block and shown to the user
         throw new Error(`Failed to start processing: ${processingError.message}`);
       }
 
-      // Show toast indicating processing has started (function was invoked successfully)
+      // Show toast indicating processing has started successfully
+     // (The function itself might still encounter errors later, but the call was successful)
       toast({
         title: "Let's make it sound amazing! 🎚️",
         description: "We're working our magic on your track. This usually takes a few minutes - time for a quick coffee break? ☕",
       });
 
-    } catch (error) {
-      // Catch errors from upload, db insert, or function invocation
+    } catch (error: any) { // Catch errors from upload, db insert, or function invocation
       console.error("Upload or Processing Trigger Error:", error);
       toast({
         variant: "destructive",
         title: "Oops! Something went wrong 😅",
-        // Display the error message caught
-        description: error.message || "Don't worry, these things happen! Try uploading again or let us know if you need help.",
+        // Display the specific error message caught
+        description: error.message || "An unexpected error occurred during upload or processing initiation. Please try again.",
       });
     } finally {
       // Reset uploading state regardless of success or failure
@@ -216,8 +274,8 @@ export const UploadTrackDialog = () => {
         <DialogFooter>
           <Button
             onClick={handleUpload}
-            disabled={!file || !platform || isUploading} // Disable if no file/platform or uploading
-            className={`bg-white text-black hover:bg-white/90 ${isUploading ? 'opacity-70 cursor-not-allowed' : ''}`}
+            disabled={!file || !platform || isUploading || !supabaseAnonKey} // Disable if no file/platform or uploading or key missing
+            className={`bg-white text-black hover:bg-white/90 ${isUploading || !supabaseAnonKey ? 'opacity-70 cursor-not-allowed' : ''}`}
           >
             {/* Show different text based on uploading state */}
             {isUploading ? "Working Our Magic... ✨" : "Let's Make It Sound Amazing! 🎚️"}
