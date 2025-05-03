@@ -13,6 +13,7 @@ export default defineConfig({
   build: {
     outDir: 'dist',
     rollupOptions: {
+      external: ['@tanstack/react-query'],
       output: {
         manualChunks: {
           'react-vendor': ['react', 'react-dom', 'react-router-dom'],
