@@ -26,6 +26,7 @@ export default defineConfig({
             '@radix-ui/react-progress',
             '@radix-ui/react-select',
             '@radix-ui/react-slot',
+            '@radix-ui/react-switch',
             '@radix-ui/react-tabs',
             '@radix-ui/react-toast',
             '@radix-ui/react-tooltip',
