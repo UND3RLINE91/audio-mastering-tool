@@ -181,6 +181,27 @@ serve(async (req) => {
       );
     }
 
+    // Update status to processing
+    console.log(`Updating track ${trackId} status to processing`);
+    const { error: statusError } = await supabaseAdmin
+      .from("audio_tracks")
+      .update({ 
+        status: "processing",
+        error_message: null
+      })
+      .eq("id", trackId);
+
+    if (statusError) {
+      console.error(`Error updating track status to processing:`, statusError);
+      return new Response(
+        JSON.stringify({ error: `Failed to update track status: ${statusError.message}` }),
+        {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+          status: 500
+        }
+      );
+    }
+
     console.log(`Track information retrieved for ${trackId}:`, {
       id: track.id,
       platform: track.selected_platform_preset,
@@ -228,19 +249,6 @@ serve(async (req) => {
           status: 403 // Forbidden
         }
       );
-    }
-
-    // --- Update Status to Processing ---
-    console.log(`Updating track ${trackId} status to processing`);
-    const { error: statusError } = await supabaseAdmin
-      .from("audio_tracks")
-      .update({ status: "processing" })
-      .eq("id", trackId);
-
-    if (statusError) {
-      console.error(`Error updating status to processing for track ${trackId}:`, statusError);
-      // Don't necessarily stop here, but log the error. Processing might still work.
-      // If this fails consistently, it indicates a DB issue.
     }
 
     // --- Audio Processing ---
@@ -299,9 +307,6 @@ serve(async (req) => {
 
       if (updateError) {
         console.error(`Database update error after mastering track ${trackId}:`, updateError);
-        // Even though processing succeeded, the final update failed.
-        // Status remains 'processing'. Manual intervention might be needed.
-        // Consider adding specific logging or alerting for this case.
         throw new Error(`Failed to update track record after mastering: ${updateError.message}`);
       }
 
@@ -315,39 +320,26 @@ serve(async (req) => {
           status: 200 // OK
         }
       );
-    } catch (processingError) {
-      // --- Error Handling during processAudio or subsequent updates ---
-      console.error(`Processing error for track ${trackId}:`, {
-        error: processingError.message,
-        stack: processingError.stack,
-        track: {
-          id: track.id,
-          platform: track.selected_platform_preset,
-          originalPath: track.storage_path_original
-        }
-      });
-
-      // Update track status to 'error' in the database
-      console.log(`Updating track ${trackId} status to error`);
-      const { error: updateErrorError } = await supabaseAdmin
+    } catch (error) {
+      console.error(`Error processing track ${trackId}:`, error);
+      
+      // Update track status to error
+      await supabaseAdmin
         .from("audio_tracks")
         .update({
           status: "error",
-          error_message: processingError.message // Store the error message
+          error_message: error.message || "An unknown error occurred during processing"
         })
         .eq("id", trackId);
 
-       if (updateErrorError) {
-         console.error(`Failed to update track ${trackId} status to 'error':`, updateErrorError);
-         // If even updating to error fails, log it prominently.
-       }
-
-      // Return error response
       return new Response(
-        JSON.stringify({ error: `Processing failed: ${processingError.message}` }),
+        JSON.stringify({ 
+          error: "Processing failed",
+          details: error.message || "An unknown error occurred"
+        }),
         {
           headers: { ...corsHeaders, "Content-Type": "application/json" },
-          status: 500 // Internal Server Error
+          status: 500
         }
       );
     }
