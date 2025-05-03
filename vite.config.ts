@@ -13,7 +13,7 @@ export default defineConfig({
   build: {
     outDir: 'dist',
     rollupOptions: {
-      external: ['@tanstack/react-query'],
+      external: ['@tanstack/react-query', 'next-themes'],
       output: {
         manualChunks: {
           'react-vendor': ['react', 'react-dom', 'react-router-dom'],
@@ -28,7 +28,8 @@ export default defineConfig({
             '@radix-ui/react-slot',
             '@radix-ui/react-tabs',
             '@radix-ui/react-toast',
-            'lucide-react'
+            'lucide-react',
+            'sonner'
           ]
         }
       }
