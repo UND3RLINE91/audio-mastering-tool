@@ -1,4 +1,3 @@
-
 import React, { useState } from "react";
 import {
   Table,
@@ -13,7 +12,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import type { Database } from "@/integrations/supabase/types";
 import { Progress } from "@/components/ui/progress";
-import { ArrowDownToLine, Play, Loader, Trash } from "lucide-react";
+import { ArrowDownToLine, Play, Loader, Trash, RefreshCw } from "lucide-react";
 import { AudioPlayer } from "@/components/AudioPlayer";
 import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "@/hooks/use-toast";
@@ -37,6 +36,7 @@ export const AudioTracksList = () => {
   const queryClient = useQueryClient();
   const [trackToDelete, setTrackToDelete] = useState<string | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [isResetting, setIsResetting] = useState(false);
 
   const { data: tracks, isLoading, refetch } = useQuery({
     queryKey: ['audioTracks'],
@@ -118,6 +118,40 @@ export const AudioTracksList = () => {
     } finally {
       setIsDeleting(false);
       setTrackToDelete(null);
+    }
+  };
+
+  const resetStuckTracks = async () => {
+    try {
+      setIsResetting(true);
+      
+      // Update all tracks stuck in processing state
+      const { error: updateError } = await supabase
+        .from('audio_tracks')
+        .update({ 
+          status: 'uploaded',
+          error_message: 'Reset for reprocessing'
+        })
+        .eq('status', 'processing');
+        
+      if (updateError) throw updateError;
+      
+      // Refresh the tracks list
+      queryClient.invalidateQueries({ queryKey: ['audioTracks'] });
+      
+      toast({
+        title: "Tracks reset",
+        description: "Stuck tracks have been reset and will be reprocessed."
+      });
+    } catch (error) {
+      console.error("Error resetting tracks:", error);
+      toast({
+        variant: "destructive",
+        title: "Reset failed",
+        description: "There was a problem resetting the tracks. Please try again."
+      });
+    } finally {
+      setIsResetting(false);
     }
   };
 
@@ -229,6 +263,26 @@ export const AudioTracksList = () => {
 
   return (
     <div className="rounded-md border border-neutral-800 bg-neutral-900/50 overflow-hidden backdrop-blur-sm">
+      <div className="p-4 flex justify-between items-center">
+        <h2 className="text-xl font-semibold text-white">Your Tracks</h2>
+        <Button
+          onClick={resetStuckTracks}
+          disabled={isResetting}
+          className="bg-white text-black hover:bg-white/90"
+        >
+          {isResetting ? (
+            <>
+              <Loader className="mr-2 h-4 w-4 animate-spin" />
+              Resetting...
+            </>
+          ) : (
+            <>
+              <RefreshCw className="mr-2 h-4 w-4" />
+              Reset Stuck Tracks
+            </>
+          )}
+        </Button>
+      </div>
       <Table>
         <TableHeader>
           <TableRow className="border-neutral-800 hover:bg-neutral-900/80">
