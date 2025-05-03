@@ -8,7 +8,6 @@ export default defineConfig({
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "./src"),
-      "@tanstack/react-query": "@tanstack/react-query",
     },
   },
   build: {
@@ -29,8 +28,7 @@ export default defineConfig({
             '@radix-ui/react-tabs',
             '@radix-ui/react-toast',
             'lucide-react'
-          ],
-          'query-vendor': ['@tanstack/react-query']
+          ]
         }
       }
     }
